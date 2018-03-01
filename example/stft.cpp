@@ -1,8 +1,8 @@
-#include <memory>
 #include "AudioPlatform/AudioVisual.h"
 #include "AudioPlatform/FFT.h"
 #include "AudioPlatform/SoundDisplay.h"
 #include "AudioPlatform/Synths.h"
+#include <memory>
 
 using namespace ap;
 

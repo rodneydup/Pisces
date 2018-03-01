@@ -76,6 +76,43 @@ struct Sine : Table {
   }
 };
 
+struct Additive {
+	Sine sine[16];
+	float gain[16];
+  void frequency(float base, float compressionFactor, float center) {
+  	for (int i = 0; i < 16; i++) {
+			if (((base * (i + 1)) - center) * compressionFactor + center > 0) {
+ 			sine[i].frequency(((base * (i + 1)) - center) * compressionFactor + center);
+ 			}
+// 			sine[i].frequency(pow(((base * (i + 1)) / center), compressionFactor) * center);
+
+		}
+  }
+	
+	void saw() {
+	for (int i = 0; i < 16; i++) {
+		gain[i] = 1.0f / (i + 1);
+		}
+	}	
+	void square() {
+		for (int i = 1; i < 16; i++) {
+			gain[i] = (i % 2 == 0) ? 1.0f / (i + 1) : 0;
+		}
+		gain[0] = 1.0f;
+	}
+		
+	float nextValue() { 
+		float sum = 0.0f;
+		for (int i = 0; i < 16; i++) {
+			sum += sine[i]() * gain[i];
+		}
+		return sum;
+	}
+	
+  float operator()() { return nextValue(); }
+
+};
+
 struct SamplePlayer : Table {
   float playbackRate;
 
@@ -160,6 +197,7 @@ struct Line {
       value += increment;
     return returnValue;
   }
+  float get() { return value; }
 };
 
 struct Saw : Phasor {
@@ -346,19 +384,29 @@ class Biquad {
 // actually an ADR
 struct ADSR {
   float a, d, s, r;
-  Line attack, decay, release;
+  Line attack, decay, release, sustain;
   int state;
-  bool loop = false;
-
-  ADSR() { set(50.0f, 100.0f, 0.7f, 300.0f); }
-
+  bool sustainHold = false;
+  bool during;
+  ADSR() { set(50.0f, 100.0f, 0.9f, 500.0f); }
   void reset() {
-    state = 0;
+  	if (state != 3) {
+  		decay.set(s, 50.0f);
+  		state = 1;
+    }	else { state = 0; }
     attack.set(0.0f, 1.0f, a);  // value, target, milliseconds
     decay.set(1.0f, s, d);
     release.set(s, 0.0f, r);
   }
+  
+  void MIDIHoldOn() {
+  	sustainHold = true;
+  }
+  void MIDIHoldOff() {
+  	sustainHold = false;
+  }
 
+	
   void set(float a, float d, float s, float r) {
     this->a = a;
     this->d = d;
@@ -369,18 +417,18 @@ struct ADSR {
 
   float operator()() { return nextValue(); }
   float nextValue() {
+
     switch (state) {
       case 0:
         if (attack.done()) state = 1;
         break;
       case 1:
-        if (decay.done()) state = 2;
+        if (sustainHold == false) state = 2;
         break;
       case 2:
         if (release.done()) state = 3;
         break;
       default:
-        if (loop) reset();
         break;
     }
     switch (state) {
@@ -389,7 +437,8 @@ struct ADSR {
         return attack.nextValue();
       case 1:
         // cout << "d:";
-        return decay.nextValue();
+        if (!decay.done()) return decay.nextValue();
+        else return s;
       case 2:
         // cout << "r:";
         return release.nextValue();

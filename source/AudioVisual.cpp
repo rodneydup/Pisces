@@ -130,7 +130,7 @@ void AudioVisual::start() {
   if (!glfwInit()) exit(1);
 
   //    printf("GOT HERE\n");
-  window = glfwCreateWindow(1280, 720, "This is the truth", nullptr, nullptr);
+  window = glfwCreateWindow(1280, 720, "Pisces", nullptr, nullptr);
   if (window == nullptr) {
     printf("Failed to make a window\n");
     exit(-1);
