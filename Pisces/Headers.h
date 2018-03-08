@@ -6,5 +6,7 @@
 #include "AudioPlatform/MIDI.h"
 //#include "BlocksHeader.h"
 //
+#include "AudioPlatform/FFT.h"
 #include "AudioPlatform/Synths.h"
 #include "AudioPlatform/Wav.h"
+

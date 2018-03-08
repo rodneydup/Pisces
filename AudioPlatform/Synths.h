@@ -125,7 +125,7 @@ struct SamplePlayer : Table {
         filePath.c_str(), &channelCount, &sampleRate, &totalSampleCount);
 
     if (pSampleData == NULL) {
-      printf("ERROR\n");
+      printf("ERROR - Audio File Not Found\n");
       exit(1);
     }
 
