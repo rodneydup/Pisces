@@ -18,11 +18,11 @@
 //		<http://www.gnu.org/licenses/>.
 //
 //		ToDo:
-//		-
+//		- Check FFT, (negative magnitude values???)
 //		- Fix footer
 
-#include "Pisces/Headers.h"
-
+#include "./Headers.h"
+#include <string.h>
 using namespace ap;
 
 struct App : AudioVisual, MIDI {
@@ -48,6 +48,9 @@ struct App : AudioVisual, MIDI {
   int noteCounter;
   int tabID = 0;
   int bin = 20;
+  int mag123;
+  std::vector<int> spectrogramData;
+  bool spectrogramRead = true;
 
   Line gainLine, tuneLine, compressionLine, centerLine, noteLine, rateLine,
       biquadLine, slideLine, pitchbendLine, pressureLine;
@@ -70,8 +73,14 @@ struct App : AudioVisual, MIDI {
       a.square();
       break;
     }
+    //player.load("media/Smash Mouth - All Star.wav");
+    //player.load("media/sine100.wav");
+    //player.load("media/sine500.wav");
     player.load("media/noise.wav");
     stft.setup(blockSize * 2);
+    _magnitude.resize(stft.magnitude.size());
+    _phase.resize(stft.magnitude.size());
+    spectrogramData.resize(stft.magnitude.size());
   }
   void audio(float *out) {
     for (unsigned i = 0; i < blockSize * channelCount; i += channelCount) {
@@ -149,8 +158,8 @@ struct App : AudioVisual, MIDI {
         float f = player();
         if (stft(f)) {
           int size = stft.magnitude.size();
-          _magnitude.resize(size);
-          _phase.resize(size);
+          memset(&_magnitude[0], 0, sizeof(_magnitude[0]) * _magnitude.size);
+          memset(&_phase[0], 0, sizeof(_phase[0]) * _phase.size);
           for (int i = bin; i < size - 1; ++i)
             stft.magnitude[i] = 0;
           for (int i = 0; i < size - 1; i++) {
@@ -171,13 +180,16 @@ struct App : AudioVisual, MIDI {
             stft.magnitude[i] = _magnitude[i];
             stft.phase[i] = _phase[i];
           }
+          if (spectrogramRead == true) {
+            for (int i = 0; i < size - 1; i++) spectrogramData[i] = int(stft.magnitude[i]);
+            spectrogramRead = false;
+          }
         }
         f = stft();
         float gain = gainLine();
         out[i + 1] = out[i + 0] = f * gain;
       }
     }
-
     memcpy(b, out, blockSize * channelCount * sizeof(float));
   }
 
@@ -185,13 +197,16 @@ struct App : AudioVisual, MIDI {
     {
 
       // 			if ((int)message[i] == 128) off
+
       {
 
         // Set ImGui window size to equal glfw window size
         int windowWidth, windowHeight;
         glfwGetWindowSize(window, &windowWidth, &windowHeight);
         ImGui::SetWindowSize("Pisces", ImVec2(windowWidth, windowWidth), 1);
-
+        ImGui::SetWindowSize("Spectrogram1", ImVec2(windowWidth, windowWidth), 1);
+        ImGui::SetWindowSize("Spectrogram2", ImVec2(windowWidth, windowWidth), 1);
+        ImGui::SetWindowSize("Spectrogram3", ImVec2(windowWidth, windowWidth), 1);
         // Make stuff pretty
         // spacing
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -201,8 +216,7 @@ struct App : AudioVisual, MIDI {
         // font size
         ImGui::GetIO().FontGlobalScale = 1.1f;
         // colors
-        ImGui::PushStyleColor(ImGuiCol_WindowBg,
-                              (ImVec4)ImColor(0.0f, 0.0f, 0.0f, 0.0f));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.0f, 0.0f, 0.0f, 0.0f));
         ImGui::PushStyleColor(ImGuiCol_Text,
                               (ImVec4)ImColor(0.318f, 1.000f, 0.416f, 0.929f));
         ImGui::PushStyleColor(ImGuiCol_FrameBg,
@@ -220,6 +234,7 @@ struct App : AudioVisual, MIDI {
 
         ImGui::Begin("Pisces", NULL, flags);
 
+        ImDrawList *drawList = ImGui::GetWindowDrawList();
         // tabs setup
 
         static bool selected[2] = {true, false};
@@ -237,6 +252,9 @@ struct App : AudioVisual, MIDI {
 
           ImGui::PopID();
         }
+
+        static int centerGraph;
+
         //
         // Synthesizer tab
         //
@@ -268,7 +286,6 @@ struct App : AudioVisual, MIDI {
           ImGui::PushItemWidth(ImGui::GetContentRegionAvailWidth() * 0.75f);
           static int centerLFO1;
           static int centerLFO2;
-          static int centerGraph;
           if (centerLFO1on) {
             if (floor(center + (LFO1value * 8.0f)) > 0 &&
                 floor(center + (LFO1value * 8.0f)) < 17)
@@ -570,16 +587,15 @@ struct App : AudioVisual, MIDI {
           ImGui::Columns(1, "Scopes", false);
 
           ImGui::Text("Spectrograph");
+          static float partials[16][600]; // array for x/y coordinates -- 16
+                                          // partials, 500 datapoints for
+                                          // lookback
 
-            static float partials[16][600]; // array for x/y coordinates -- 16
-                                            // partials, 500 datapoints for
-                                            // lookback
-
-            for (unsigned i = 0; i < 599;
-                 i++) { // pop the first elements (expensive? Maybe use stack or
-                        // vector?)
-              for (int j = 0; j < 16; j++)
-                partials[j][i] = partials[j][i + 1];
+          for (unsigned i = 0; i < 599;
+               i++) { // pop the first elements (expensive? Maybe use stack or
+                      // vector?)
+            for (int j = 0; j < 16; j++)
+              partials[j][i] = partials[j][i + 1];
             };
 
             for (int j = 0; j < 16; j++) { // push new final elements
@@ -599,9 +615,9 @@ struct App : AudioVisual, MIDI {
                         // other way...)
               for (int j = 0; j < 16; j++) {
                 ImVec2 pos1(i * (windowWidth / 600.0f),
-                            600.0f - (partials[j][i] * 9.0f)),
+                            600.0f - (partials[j][i] * 9)),
                     pos2((i + 1.0f) * (windowWidth / 600.0f),
-                         600.0f - (partials[j][i + 1] * 9.0f));
+                         600.0f - (partials[j][i + 1] * 9));
                 unsigned long lineColor =
                     (j + 1 == centerGraph)
                         ? 3983212369
@@ -808,11 +824,30 @@ struct App : AudioVisual, MIDI {
             }
           }
           ImGui::SliderInt("Bin", &bin, 0, stft.magnitude.size() - 1);
-        }
+          // ImGui::SliderInt("Magnitude", &mag123, 0, stft.magnitude.size() - 1);
 
+           ImGui::Columns(1, "Scopes", false);
+           ImGui::Text("Spectrogram");
+           drawList->AddRectFilled(ImVec2(0, 304), ImVec2(windowWidth, 600), 687855585, 0.0f, 0x0F);
+          // ImGui::BeginChild("thing", ImVec2(200, 200), true);
+
+
+
+           // Draw spectrograph X-axis labels
+           for (float x = 1; x < windowWidth; x += (windowWidth / 10.0f)) {
+             drawList->AddLine(ImVec2(x, 600.0f), ImVec2(x, 610.0f), 4294967295, 0.7f);
+              }
+              for (int i = 0; i < 10; i++) {
+                int x = i - 10;
+                char text[4];
+                sprintf(text, "%ds", x);
+                drawList->AddText(0, 10.0f, ImVec2(i * (windowWidth / 10.0f) + 5.0f, 604.0f), 4294967295, text, NULL,
+                                  50.f, NULL);
+              }
+              // ImGui::EndChild();
+        }
         // Footer Text
 
-        ImDrawList *drawList = ImGui::GetWindowDrawList();
         char framerate[40];
         sprintf(framerate, "Application average %.3f ms/frame (%.1f FPS)",
                 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
@@ -824,10 +859,82 @@ struct App : AudioVisual, MIDI {
                           300.f, NULL);
 
         ImGui::End();
+        //
+        //
+        // Spectrogram
+        //
+        //
+        const int ysize = 10;
+        static float spectrum[ysize][600];  // array for x/y coordinates
+        static int x_index = 0;
+        x_index = (x_index + 1) % 600;
+        for (int y = 0; y < ysize; y++) spectrum[y][x_index] = spectrogramData[y];
+        spectrogramRead = true;
+        /*
+                ImGui::Begin("Spectrogram1", NULL,
+                             flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+                ImDrawList *graph1DrawList = ImGui::GetWindowDrawList();
+                if (tabID == 1) {
+                  for (int x = 0; x < 199; x++) {
+                    int z = (x_index + 1 + x) % 599;
+                    for (int y = 0; y < ysize; y++) {
+                      if (spectrum[y][x] >= 0) {
+                        int alpha = spectrum[y][z] * 5;
+                        if (alpha > 255) alpha = 255;
+                        ImVec2 pos1(x * (windowWidth / 600.0f), 600.0f - y), pos2((x + 1) * (windowWidth / 600.0f),
+           600.0f - y); graph1DrawList->AddLine(pos1, pos2, ImColor(255, 255, 255, alpha), 0.9f);
+                      }
+                    }
+                    //std::cout << graph1DrawList->VtxBuffer.Size << std::endl;
+                  }
+                 }
+                ImGui::End();
+
+                        ImGui::Begin("Spectrogram2", NULL,
+                             flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+                ImDrawList *graph2DrawList = ImGui::GetWindowDrawList();
+                if (tabID == 1) {
+                  for (int x = 199; x < 399; x++) {
+                    int z = (x_index + 1 + x) % 599;
+                    for (int y = 0; y < ysize; y++) {
+                      if (spectrum[y][x] >= 0) {
+                        int alpha = spectrum[y][z] * 5;
+                        if (alpha > 255) alpha = 255;
+                        ImVec2 pos1(x * (windowWidth / 600.0f), 600.0f - y), pos2((x + 1) * (windowWidth / 600.0f),
+           600.0f - y); graph2DrawList->AddLine(pos1, pos2, ImColor(255, 255, 255, alpha), 0.9f);
+                      }
+                    }
+                    // std::cout << graphDrawList->VtxBuffer.Size << std::endl;
+                  }
+                 }
+                ImGui::End();
+
+                ImGui::Begin("Spectrogram3", NULL,
+                             flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+                ImDrawList *graph3DrawList = ImGui::GetWindowDrawList();
+                if (tabID == 1) {
+                  for (int x = 399; x < 599; x++) {
+                    int z = (x_index + 1 + x) % 599;
+                    for (int y = 0; y < ysize; y++) {
+                      if (spectrum[y][x] >= 0) {
+                        int alpha = spectrum[y][z] * 5;
+                        if (alpha > 255) alpha = 255;
+                        ImVec2 pos1(x * (windowWidth / 600.0f), 600.0f - y), pos2((x + 1) * (windowWidth / 600.0f),
+           600.0f - y); graph3DrawList->AddLine(pos1, pos2, ImColor(255, 255, 255, alpha), 1.0f);
+                      }
+                    }
+                    std::cout << graph3DrawList->VtxBuffer.Size << std::endl;
+                  }
+                 }
+                ImGui::End();
+              */
       }
 
       {
-        ImGui::SetNextWindowPos(ImVec2(600, 20), ImGuiCond_FirstUseEver);
+        // ImGui::SetNextWindowPos(ImVec2(600, 20), ImGuiCond_FirstUseEver);
         // ImGui::ShowTestWindow();
         ImGui::PopStyleVar(4);
         ImGui::PopStyleColor(8);
