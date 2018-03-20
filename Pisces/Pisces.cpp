@@ -20,6 +20,12 @@
 //		ToDo:
 //		- Check FFT, (negative magnitude values???)
 //		- Fix footer
+//		- zero-padding
+//		- Fix intermittent white vertical bar on spectrograph
+//		- Make sure scale is right
+//		- Add Y axis labels on spectrograph
+//		- Add Load File and Save Settings functions
+//		- Add Record Function
 
 #include "./Headers.h"
 #include <string.h>
@@ -44,13 +50,13 @@ struct App : AudioVisual, MIDI {
   float LPcutoff = 127.0f;
   float tune = 0.0f;
   bool noteOff = true;
-  int center = 1;
+  int center = 20;
   int noteCounter;
   int tabID = 0;
-  int bin = 20;
-  int mag123;
+  int bin = 500;
+  int scale = 0;
+  int FFTsize = blockSize * 4;
   std::vector<int> spectrogramData;
-  bool spectrogramRead = true;
 
   Line gainLine, tuneLine, compressionLine, centerLine, noteLine, rateLine,
       biquadLine, slideLine, pitchbendLine, pressureLine;
@@ -61,7 +67,7 @@ struct App : AudioVisual, MIDI {
   STFT stft;
   SamplePlayer player;
   Array _magnitude, _phase;
-
+  std::mutex mtx;
   std::vector<unsigned char> message;
 
   void setup() {
@@ -73,11 +79,12 @@ struct App : AudioVisual, MIDI {
       a.square();
       break;
     }
-    //player.load("media/Smash Mouth - All Star.wav");
-    //player.load("media/sine100.wav");
-    //player.load("media/sine500.wav");
-    player.load("media/noise.wav");
-    stft.setup(blockSize * 2);
+    // player.load("media/Smash Mouth - All Star.wav");
+    // player.load("media/sine100.wav");
+    // player.load("media/sine500.wav");
+    // player.load("media/noise.wav");
+    player.load("media/BACH.wav");
+    stft.setup(FFTsize);
     _magnitude.resize(stft.magnitude.size());
     _phase.resize(stft.magnitude.size());
     spectrogramData.resize(stft.magnitude.size());
@@ -154,35 +161,29 @@ struct App : AudioVisual, MIDI {
         LFO1();
         LFO2();
         float sampleCompressionFactor = compressionLine();
-        float sampleCenterFreq = centerLine() / 43.0f;
+        float sampleCenterFreq = centerLine() / (22050.0 / (FFTsize / 2.0));
         float f = player();
         if (stft(f)) {
           int size = stft.magnitude.size();
           memset(&_magnitude[0], 0, sizeof(_magnitude[0]) * _magnitude.size);
           memset(&_phase[0], 0, sizeof(_phase[0]) * _phase.size);
-          for (int i = bin; i < size - 1; ++i)
-            stft.magnitude[i] = 0;
+          for (int i = bin; i < size - 1; ++i) stft.magnitude[i] = 0;
           for (int i = 0; i < size - 1; i++) {
-            if (((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq >
-                    0 &&
-                ((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq <
-                    20000) {
-              _magnitude.add(
-                  (((i - sampleCenterFreq) * sampleCompressionFactor) +
-                   sampleCenterFreq),
-                  stft.magnitude[i]);
-              _phase.add((((i - sampleCenterFreq) * sampleCompressionFactor) +
-                          sampleCenterFreq),
-                         stft.phase[i]);
+            if (((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq > 0 &&
+                ((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq < 22050) {
+              _magnitude.add((((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq),
+                             stft.magnitude[i]);
+              _phase.add((((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq), stft.phase[i]);
             }
           }
           for (int i = 0; i < size - 1; i++) {
             stft.magnitude[i] = _magnitude[i];
             stft.phase[i] = _phase[i];
           }
-          if (spectrogramRead == true) {
+          //std::cout << stft.magnitude[11] << std::endl;
+          if (mtx.try_lock()) {
             for (int i = 0; i < size - 1; i++) spectrogramData[i] = int(stft.magnitude[i]);
-            spectrogramRead = false;
+            mtx.unlock();
           }
         }
         f = stft();
@@ -203,14 +204,34 @@ struct App : AudioVisual, MIDI {
         // Set ImGui window size to equal glfw window size
         int windowWidth, windowHeight;
         glfwGetWindowSize(window, &windowWidth, &windowHeight);
-        ImGui::SetWindowSize("Pisces", ImVec2(windowWidth, windowWidth), 1);
-        ImGui::SetWindowSize("Spectrogram1", ImVec2(windowWidth, windowWidth), 1);
-        ImGui::SetWindowSize("Spectrogram2", ImVec2(windowWidth, windowWidth), 1);
-        ImGui::SetWindowSize("Spectrogram3", ImVec2(windowWidth, windowWidth), 1);
+        ImGui::SetWindowSize("Pisces", ImVec2(windowWidth, windowHeight), 1);
+
+        static bool show_app_main_menu_bar = true;
+        if (ImGui::BeginMainMenuBar()) {
+          if (ImGui::BeginMenu("File")) {
+            ImGui::EndMenu();
+          }
+          if (ImGui::BeginMenu("Edit")) {
+            if (ImGui::MenuItem("Undo", "CTRL+Z")) {
+            }
+            if (ImGui::MenuItem("Redo", "CTRL+Y", false, false)) {
+            }  // Disabled item
+            ImGui::Separator();
+            if (ImGui::MenuItem("Cut", "CTRL+X")) {
+            }
+            if (ImGui::MenuItem("Copy", "CTRL+C")) {
+            }
+            if (ImGui::MenuItem("Paste", "CTRL+V")) {
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMainMenuBar();
+    }
+
         // Make stuff pretty
         // spacing
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f, 10.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f, 7.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(3.0f, 4.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(3.0f, 4.0f));
         // font size
@@ -236,7 +257,6 @@ struct App : AudioVisual, MIDI {
 
         ImDrawList *drawList = ImGui::GetWindowDrawList();
         // tabs setup
-
         static bool selected[2] = {true, false};
         char names[2][12] = {"Synthesizer", "Sampler"};
         for (int i = 0; i < 2; i++) {
@@ -247,12 +267,9 @@ struct App : AudioVisual, MIDI {
               selected[(i + x) % 2] = false;
             }
           }
-          if (i == 0)
-            ImGui::SameLine();
-
+          if (i == 0) ImGui::SameLine();
           ImGui::PopID();
         }
-
         static int centerGraph;
 
         //
@@ -608,243 +625,141 @@ struct App : AudioVisual, MIDI {
             }
 
             ImDrawList *drawList = ImGui::GetWindowDrawList();
-            drawList->AddRectFilled(ImVec2(0, 304), ImVec2(windowWidth, 600),
-                                    687855585, 0.0f, 0x0F);
+            drawList->AddRectFilled(ImVec2(0, 324), ImVec2(windowWidth, 620), 687855585, 0.0f, 0x0F);
             for (unsigned i = 0; i < 599;
                  i++) { // draw between datapoints (also expensive but I see no
                         // other way...)
               for (int j = 0; j < 16; j++) {
-                ImVec2 pos1(i * (windowWidth / 600.0f),
-                            600.0f - (partials[j][i] * 9)),
-                    pos2((i + 1.0f) * (windowWidth / 600.0f),
-                         600.0f - (partials[j][i + 1] * 9));
+                ImVec2 pos1(i * (windowWidth / 600.0f), 620.0f - (partials[j][i] * 9.5)),
+                    pos2((i + 1.0f) * (windowWidth / 600.0f), 620.0f - (partials[j][i + 1] * 9.5));
                 unsigned long lineColor =
                     (j + 1 == centerGraph)
                         ? 3983212369
                         : 4294967295; // set center oscillator to green
-                if (600.0f - (partials[j][i + 1] * 11.0f) < 601.0f)
+                if (620.0f - (partials[j][i + 1] * 11.0f) < 621.0f)
                   drawList->AddLine(pos1, pos2, lineColor, 0.9f);
               }
             }
 
             // Draw spectrograph X-axis labels
             for (float i = 1; i < windowWidth; i += (windowWidth / 10.0f)) {
-              drawList->AddLine(ImVec2(i, 600.0f), ImVec2(i, 610.0f),
+              drawList->AddLine(ImVec2(i, 620.0f), ImVec2(i, 630.0f),
                                 4294967295, 0.7f);
             }
             for (int i = 0; i < 10; i++) {
               int x = i - 10;
               char text[4];
               sprintf(text, "%ds", x);
-              drawList->AddText(
-                  0, 10.0f, ImVec2(i * (windowWidth / 10.0f) + 5.0f, 604.0f),
-                  4294967295, text, NULL, 50.f, NULL);
+              drawList->AddText(0, 10.0f, ImVec2(i * (windowWidth / 10.0f) + 5.0f, 624.0f), 4294967295, text, NULL,
+                                50.f, NULL);
             }
 
             // LFO labels
-            drawList->AddText(0, 10.0f, ImVec2(2.0f, 50.0f), 3983212369, "LFO1",
-                              NULL, 50.f, NULL);
-            drawList->AddText(0, 10.0f, ImVec2(25.0f, 50.0f), 3983212369,
-                              "LFO2", NULL, 50.f, NULL);
+            drawList->AddText(0, 10.0f, ImVec2(2.0f, 70.0f), 3983212369, "LFO1", NULL, 50.f, NULL);
+            drawList->AddText(0, 10.0f, ImVec2(25.0f, 70.0f), 3983212369, "LFO2", NULL, 50.f, NULL);
 
             ImGui::Text("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
             ImGui::Text("Oscilloscope");
             ImGui::PushItemWidth(ImGui::GetContentRegionAvailWidth() * 1.0f);
             ImGui::PlotLines("Scope", &b[0], blockSize, 0, nullptr, FLT_MAX,
                              FLT_MAX, ImVec2(0, 60), 2 * sizeof(float));
-            ImGui::PopItemWidth();
         }
 
         //
         // Sampler tab
         //
         if (tabID == 1) {
-          static float lfo1amp = 1.0f;
-          static float lfo2amp = 1.0f;
+          ImGui::Text("\n");
 
-          float LFO1value = LFO1() * lfo1amp;
-          float LFO2value = LFO2() * lfo2amp;
-
-          ImGui::Text("\n ");
-
-          ImGui::Columns(2, "mycolumns", false);
-
-          static bool centerLFO1on;
-          static bool centerLFO2on;
-          ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16);
-          ImGui::Checkbox("##centerLFO1on", &centerLFO1on);
-          if (centerLFO1on)
-            centerLFO2on = false;
-          ImGui::SameLine();
-          ImGui::Checkbox("##centerLFO2on", &centerLFO2on);
-          if (centerLFO2on)
-            centerLFO1on = false;
-          ImGui::PopStyleVar();
-          ImGui::SameLine();
-
-          ImGui::PushItemWidth(ImGui::GetContentRegionAvailWidth() * 0.75f);
-          static int centerLFO1;
-          static int centerLFO2;
-          static int centerGraph;
-          if (centerLFO1on) {
-            if (floor(center + (LFO1value * 1000.0f)) > 0 &&
-                floor(center + (LFO1value * 1000.0f)) < 2001)
-              centerLFO1 = center + (LFO1value * 1000.0f);
-            int wasCenter = centerLFO1;
-            ImGui::SliderInt("Center Select", &centerLFO1, 1, 2000);
-            if (centerLFO1 != wasCenter)
-              center = centerLFO1;
-            centerLine.set(centerLFO1, 10.f);
-            centerGraph = centerLFO1;
-          } else {
-            if (centerLFO2on) {
-              if (floor(center + (LFO2value * 1000.0f)) > 0 &&
-                  floor(center + (LFO2value * 1000.0f)) < 2001)
-                centerLFO2 = center + (LFO2value * 1000.0f);
-              int wasCenter = centerLFO2;
-              ImGui::SliderInt("Center Select", &centerLFO2, 1, 2000);
-              if (centerLFO2 != wasCenter)
-                center = centerLFO2;
-              centerLine.set(centerLFO2, 10.f);
-              centerGraph = centerLFO2;
-            } else {
-              ImGui::SliderInt("Center Select", &center, 1, 2000);
-              centerLine.set(center, 10.f);
-              centerGraph = center;
-            }
-          }
-
-          static bool compressionLFO1on;
-          static bool compressionLFO2on;
-          ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16);
-          ImGui::Checkbox("##compressionLFO1on", &compressionLFO1on);
-          if (compressionLFO1on)
-            compressionLFO2on = false;
-          ImGui::SameLine();
-          ImGui::Checkbox("##compressionLFO2on", &compressionLFO2on);
-          if (compressionLFO2on)
-            compressionLFO1on = false;
-          ImGui::PopStyleVar();
-          ImGui::SameLine();
-
-          static float compressionLFO1;
-          static float compressionLFO2;
-          static float compressionGraph;
-          if (compressionLFO1on) {
-            if (floor(compressionFactor + (LFO1value) > 0.0f &&
-                      floor(compressionFactor + (LFO1value) < 2.0f)))
-              compressionLFO1 = compressionFactor + (LFO1value);
-            float wasCompression = compressionLFO1;
-            ImGui::SliderFloat("Compression Ratio", &compressionLFO1, 0.0f,
-                               2.0f);
-            if (compressionLFO1 != wasCompression)
-              compressionFactor = compressionLFO1;
-            compressionLine.set(compressionLFO1, 10.0f);
-            compressionGraph = compressionLFO1;
-          } else {
-            if (compressionLFO2on) {
-              if (floor(compressionFactor + (LFO2value) > 0 &&
-                        floor(compressionFactor + (LFO2value) < 17)))
-                compressionLFO2 = compressionFactor + (LFO2value);
-              float wasCompression = compressionLFO2;
-              ImGui::SliderFloat("Compression Ratio", &compressionLFO2, 0.0f,
-                                 2.0f);
-              if (compressionLFO2 != wasCompression)
-                compressionFactor = compressionLFO2;
-              compressionLine.set(compressionLFO2, 10.0f);
-              compressionGraph = compressionLFO2;
-            } else {
-              ImGui::SliderFloat("Compression Ratio", &compressionFactor, 0.0f,
-                                 2.0f);
-              compressionLine.set(compressionFactor, 10.0f);
-              compressionGraph = compressionFactor;
-            }
-          }
-
-          ImGui::BeginGroup();
-          ImGui::Text("\nLFO 1 ");
-
-          ImGui::PushItemWidth(ImGui::GetContentRegionAvailWidth() * 0.42f);
-          static float lfo1rate = 1;
-          ImGui::SliderFloat("Rate", &lfo1rate, 0.1f, 20.0f);
-          LFO1.frequency(lfo1rate);
-
-          ImGui::SliderFloat("Amp", &lfo1amp, 0.0f, 1.0f);
-          ImGui::EndGroup();
-
-          ImGui::SameLine();
-
-          ImGui::BeginGroup();
-          ImGui::Text("\nLFO 2 ");
-
-          static float lfo2rate = 1;
-          ImGui::SliderFloat("Rate##2", &lfo2rate, 0.1f, 20.0f);
-          LFO2.frequency(lfo2rate);
-
-          ImGui::SliderFloat("Amp##2", &lfo2amp, 0.0f, 1.0f);
-          ImGui::PopItemWidth();
-          ImGui::EndGroup();
-
-          ImGui::NextColumn();
-
-          static bool volumeLFO1on;
-          static bool volumeLFO2on;
-          ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16);
-          ImGui::Checkbox("##volumeLFO1on", &volumeLFO1on);
-          if (volumeLFO1on)
-            volumeLFO2on = false;
-          ImGui::SameLine();
-          ImGui::Checkbox("##volumeLFO2on", &volumeLFO2on);
-          if (volumeLFO2on)
-            volumeLFO1on = false;
-          ImGui::PopStyleVar();
-          ImGui::SameLine();
-
+          ImGui::PushItemWidth(ImGui::GetContentRegionAvailWidth() * 0.3f);
           static float db = -90.0f;
-          static float volumeLFO1;
-          static float volumeLFO2;
-          if (volumeLFO1on) {
-            volumeLFO1 = db + (LFO1value * 10.0f);
-            float wasVolume = volumeLFO1;
-            ImGui::SliderFloat("Volume", &volumeLFO1, -90.0f, 9.0f);
-            if (volumeLFO1 != wasVolume)
-              db = volumeLFO1;
-            gainLine.set(dbtoa(volumeLFO1), 50.0f);
+          ImGui::SliderFloat("Volume", &db, -90.0f, 9.0f);
+          gainLine.set(dbtoa(db), 50.0f);
+          ImGui::PopItemWidth();
+          ImGui::SameLine(ImGui::GetContentRegionAvailWidth() - 500);
+          ImGui::Text(
+              "Click anywhere on the spectrogram to set the Center Frequency.\nShift-Click and drag to change the "
+              "Compression Ratio.");
+
+          ImGui::Text("\n\n\n\n\n");
+
+          ImGui::Text("Spectrogram");
+          ImGui::SameLine(0, 20);
+          static bool selected[2] = {true, false};
+          char names[2][14] = {"Logarithmic", "Linear"};
+          for (int i = 0; i < 2; i++) {
+            ImGui::PushID(i);
+            if (ImGui::Selectable(names[i], &selected[i], 0, ImVec2(100, 18))) {
+              scale = i;
+              for (int x = 1; x < 2; x++) {
+                selected[(i + x) % 2] = false;
+              }
+            }
+            if (i == 0) ImGui::SameLine();
+
+            ImGui::PopID();
+        }
+
+        ImGui::SameLine(ImGui::GetContentRegionAvailWidth() - 220);
+
+        ImGui::PushItemWidth(ImGui::GetContentRegionAvailWidth() * 0.3f);
+
+        ImGui::DragFloat("Compression Ratio", &compressionFactor, 0, -1, 2);
+        compressionLine.set(compressionFactor, 10.0f);
+        ImGui::SameLine(ImGui::GetContentRegionAvailWidth() - 400);
+        ImGui::DragInt("Center(Hz)", &center, 0, -1, 2);
+        centerLine.set(center, 10.f);
+        ImGui::PopItemWidth();
+
+        drawList->AddRectFilled(ImVec2(0, 200), ImVec2(windowWidth, 600), 687855585, 0.0f, 0x0F);
+        // ImGui::BeginChild("thing", ImVec2(200, 200), true);
+
+        // Draw spectrogram X-axis labels
+        for (float x = 1; x < windowWidth; x += (windowWidth / 10.0f)) {
+          drawList->AddLine(ImVec2(x, 600.0f), ImVec2(x, 610.0f), 4294967295, 0.7f);
+          }
+          for (int i = 0; i < 10; i++) {
+            int x = i - 10;
+            char text[4];
+            sprintf(text, "%ds", x);
+            drawList->AddText(0, 10.0f, ImVec2(i * (windowWidth / 10.0f) + 5.0f, 604.0f), 4294967295, text, NULL, 50.f,
+                              NULL);
+          }
+
+          ImGuiIO &io = ImGui::GetIO();
+          // Draw Center Line on Spectrogram
+          if (scale == 0) {
+            drawList->AddLine(ImVec2(0, 600 - ((ftom(centerLine.get())) * 3.2)),
+                              ImVec2(windowWidth, 600 - ((ftom(centerLine.get())) * 3.2)), ImColor(81, 255, 106, 200),
+                              0.5f);
+            if (ImGui::IsMouseDown(0) && io.MousePos.y < 600 && io.MousePos.y > 200) {
+              if (ImGui::IsKeyDown(340) || ImGui::IsKeyDown(344))
+                compressionFactor -= io.MouseDelta.y / 100;
+              else
+                center = mtof((600 - io.MousePos.y) / 3.2);
+            }
           } else {
-            if (volumeLFO2on) {
-              volumeLFO2 = db + (LFO2value * 10.0f);
-              float wasVolume = volumeLFO2;
-              ImGui::SliderFloat("Volume", &volumeLFO2, -90.0f, 9.0f);
-              if (volumeLFO2 != wasVolume)
-                db = volumeLFO2;
-              gainLine.set(dbtoa(volumeLFO2), 50.0f);
-            } else {
-              ImGui::SliderFloat("Volume", &db, -90.0f, 9.0f);
-              gainLine.set(dbtoa(db), 50.0f);
+            drawList->AddLine(ImVec2(0, 600 - (centerLine.get() / 26)),
+                              ImVec2(windowWidth, 600 - (centerLine.get()) / 26), ImColor(81, 255, 106, 200), 0.5f);
+            if (ImGui::IsMouseDown(0) && io.MousePos.y < 600 && io.MousePos.y > 200) {
+              if (ImGui::IsKeyDown(340) || ImGui::IsKeyDown(344))
+                compressionFactor -= io.MouseDelta.y / 100;
+              else
+                center = (600 - io.MousePos.y) * 26;
             }
           }
-          ImGui::SliderInt("Bin", &bin, 0, stft.magnitude.size() - 1);
-          // ImGui::SliderInt("Magnitude", &mag123, 0, stft.magnitude.size() - 1);
 
-           ImGui::Columns(1, "Scopes", false);
-           ImGui::Text("Spectrogram");
-           drawList->AddRectFilled(ImVec2(0, 304), ImVec2(windowWidth, 600), 687855585, 0.0f, 0x0F);
-          // ImGui::BeginChild("thing", ImVec2(200, 200), true);
+          char time[4];
+          static int timer = 0;
+          sprintf(time, "%d seconds active", timer);
+          static int timeInterval = 0;
+          timeInterval = (timeInterval + 1) % 60;
+          if (timeInterval == 59) timer += 1;
 
+          drawList->AddText(0, 10.0f, ImVec2(2.0f, 700.0f), 3983212369, time, NULL, 300.f, NULL);
 
-
-           // Draw spectrograph X-axis labels
-           for (float x = 1; x < windowWidth; x += (windowWidth / 10.0f)) {
-             drawList->AddLine(ImVec2(x, 600.0f), ImVec2(x, 610.0f), 4294967295, 0.7f);
-              }
-              for (int i = 0; i < 10; i++) {
-                int x = i - 10;
-                char text[4];
-                sprintf(text, "%ds", x);
-                drawList->AddText(0, 10.0f, ImVec2(i * (windowWidth / 10.0f) + 5.0f, 604.0f), 4294967295, text, NULL,
-                                  50.f, NULL);
-              }
-              // ImGui::EndChild();
+          // ImGui::EndChild();
+          // std::cout << drawList->VtxBuffer.Size << std::endl;
         }
         // Footer Text
 
@@ -864,78 +779,86 @@ struct App : AudioVisual, MIDI {
         // Spectrogram
         //
         //
-        const int ysize = 10;
-        static float spectrum[ysize][600];  // array for x/y coordinates
+        ImGui::SetWindowSize("Spectrogram1", ImVec2(windowWidth, windowHeight), 1);
+        /* ImGui::Begin("Spectrogram2", NULL,
+                      flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus);
+         ImDrawList *graph10DrawList = ImGui::GetWindowDrawList();
+         ImVec2 position1(0, 350), position2(50, 300), position3(100, 350), position4(150, 300), position5(200, 350),
+             position6(250, 300);
+         ImVec2 points[5] = {position2, position3, position4, position5, position6};
+         // graph10DrawList->AddLine(position1, position2, ImColor(255, 255, 255, 255), 1.0f);
+         // graph10DrawList->AddLine(position2, position3, ImColor(255, 255, 255, 255), 1.0f);
+         graph10DrawList->AddPolyline(points, 5, ImColor(255, 255, 255, 255), false, 1.0f, false);
+         std::cout << graph10DrawList->VtxBuffer.Size << std::endl;
+         ImGui::End(); */
+        const int ysize = 1024;
+        const int xsize = 300;
+        const float freqRes = 22050 / ysize;
+        const int timeRes = 60.0f / (xsize / 10.0f);
+        static float spectrum[ysize][xsize];  // array for x/y coordinates
         static int x_index = 0;
-        x_index = (x_index + 1) % 600;
-        for (int y = 0; y < ysize; y++) spectrum[y][x_index] = spectrogramData[y];
-        spectrogramRead = true;
-        /*
-                ImGui::Begin("Spectrogram1", NULL,
-                             flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus);
+        int ypos, nextypos;
 
-                ImDrawList *graph1DrawList = ImGui::GetWindowDrawList();
-                if (tabID == 1) {
-                  for (int x = 0; x < 199; x++) {
-                    int z = (x_index + 1 + x) % 599;
-                    for (int y = 0; y < ysize; y++) {
-                      if (spectrum[y][x] >= 0) {
-                        int alpha = spectrum[y][z] * 5;
-                        if (alpha > 255) alpha = 255;
-                        ImVec2 pos1(x * (windowWidth / 600.0f), 600.0f - y), pos2((x + 1) * (windowWidth / 600.0f),
-           600.0f - y); graph1DrawList->AddLine(pos1, pos2, ImColor(255, 255, 255, alpha), 0.9f);
-                      }
+        static int counter = 0;
+        if (counter == 0) {
+          mtx.lock();
+          for (int y = 0; y < ysize; y++) spectrum[y][x_index] = spectrogramData[y];
+          // std::cout << spectrogramData.size() << std::endl;
+          mtx.unlock();
+          x_index = (x_index + 1) % xsize; // looping index
+        }
+        counter = (counter + 1) % timeRes;
+
+        ImGui::Begin("Spectrogram1", NULL,
+                     flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+        ImDrawList *graphDrawList = ImGui::GetWindowDrawList();
+        if (tabID == 1) {
+          for (int x = 0; x < xsize; x++) {
+            int z = (x_index + x) % xsize;  // z is used to find the magnitude and map to alpha
+            for (int y = 1; y < ysize; y++) {
+              if (spectrum[y][z] > 1) { // if this bin doesn't have a negligible value
+                if (scale == 0) {       // if logarithmic scale
+                  ypos = unsigned(600 - (ftom(y * freqRes) * 3.2));
+                  nextypos = unsigned(600 - (ftom((y + 1) * freqRes) * 3.2));
+                } else {  // if linear scale
+                  ypos = unsigned(600 - (y * freqRes) / 26);
+                  nextypos = unsigned(600 - ((y + 1) * freqRes) / 26);
+                }
+                if (ypos <= 600 && nextypos >= 200) {  // if y position is within spectrogram space
+                  static int sameCount = 0;
+                  if (ypos == nextypos) sameCount++;
+                  if (sameCount == 1) {
+                    sameCount = 0;
+                    if (x == xsize - 1) {
+                      mtx.lock();
+                      spectrum[y + 1][x] = spectrum[y + 1][x] + (spectrum[y][x] * (1 - (spectrum[y + 1][x] / 255)));
+                      mtx.unlock();
                     }
-                    //std::cout << graph1DrawList->VtxBuffer.Size << std::endl;
+                  } else {
+                    int alpha = spectrum[y][z] * 2;
+                    if (alpha > 255) alpha = 255;
+                    // std::cout << 600.0f - ftom((y * 39.16) * 2) << std::endl;
+                    ImVec2 pos1(x * (windowWidth / float(xsize)), ypos),
+                        pos2((x + 1) * (windowWidth / float(xsize)), nextypos);
+                    graphDrawList->AddRectFilled(pos1, pos2, ImColor(255, 255, 255, alpha), 0.0f, 0x0F);
                   }
-                 }
-                ImGui::End();
+                }
+              }
+            }
+          }
 
-                        ImGui::Begin("Spectrogram2", NULL,
-                             flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus);
+          // std::cout << graphDrawList->VtxBuffer.Size << std::endl;
+          // std::cout << unsigned(ftom(22050)) << std::endl;
+        }
 
-                ImDrawList *graph2DrawList = ImGui::GetWindowDrawList();
-                if (tabID == 1) {
-                  for (int x = 199; x < 399; x++) {
-                    int z = (x_index + 1 + x) % 599;
-                    for (int y = 0; y < ysize; y++) {
-                      if (spectrum[y][x] >= 0) {
-                        int alpha = spectrum[y][z] * 5;
-                        if (alpha > 255) alpha = 255;
-                        ImVec2 pos1(x * (windowWidth / 600.0f), 600.0f - y), pos2((x + 1) * (windowWidth / 600.0f),
-           600.0f - y); graph2DrawList->AddLine(pos1, pos2, ImColor(255, 255, 255, alpha), 0.9f);
-                      }
-                    }
-                    // std::cout << graphDrawList->VtxBuffer.Size << std::endl;
-                  }
-                 }
-                ImGui::End();
-
-                ImGui::Begin("Spectrogram3", NULL,
-                             flags | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus);
-
-                ImDrawList *graph3DrawList = ImGui::GetWindowDrawList();
-                if (tabID == 1) {
-                  for (int x = 399; x < 599; x++) {
-                    int z = (x_index + 1 + x) % 599;
-                    for (int y = 0; y < ysize; y++) {
-                      if (spectrum[y][x] >= 0) {
-                        int alpha = spectrum[y][z] * 5;
-                        if (alpha > 255) alpha = 255;
-                        ImVec2 pos1(x * (windowWidth / 600.0f), 600.0f - y), pos2((x + 1) * (windowWidth / 600.0f),
-           600.0f - y); graph3DrawList->AddLine(pos1, pos2, ImColor(255, 255, 255, alpha), 1.0f);
-                      }
-                    }
-                    std::cout << graph3DrawList->VtxBuffer.Size << std::endl;
-                  }
-                 }
-                ImGui::End();
-              */
+        ImGui::End();
+        if (ImGui::IsKeyPressed(86)) tabID = (tabID + 1) % 2;
       }
 
       {
         // ImGui::SetNextWindowPos(ImVec2(600, 20), ImGuiCond_FirstUseEver);
-        // ImGui::ShowTestWindow();
+        ImGui::ShowTestWindow();
         ImGui::PopStyleVar(4);
         ImGui::PopStyleColor(8);
       }

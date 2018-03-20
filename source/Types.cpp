@@ -38,4 +38,13 @@ void Array::add(const float index, const float value) {
   data[i] += value * (1 - t);
   data[j] += value * t;
 }
+
+void Array::addAverage(const float index, const float value) {
+  const unsigned i = floor(index);
+  const unsigned j = (i == (size - 1)) ? 0 : i + 1;  // looping semantics
+  const float t = index - i;
+  data[i] += (((value + data[i]) / 2) - data[i]) * (1 - t);
+  data[j] += (((value + data[j]) / 2) - data[j]) * t;
+}
+
 }  // namespace ap

@@ -63,6 +63,8 @@ struct MIDI {
        std::cout << "Byte " << i << " = " << (int)message[i] << ", ";
      if (nBytes > 0) std::cout << "stamp = " << stamp << std::endl;
 	}
+        void setup();
+        void receive(std::vector<unsigned char> &message);
 };
 
 }  // namespace ap

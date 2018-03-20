@@ -1,8 +1,10 @@
 #ifndef __AP_FFT__
 #define __AP_FFT__
 
-#include <vector>
 #include "AudioFFT/AudioFFT.h"
+#include "AudioPlatform/Functions.h"
+#include <cmath>
+#include <vector>
 
 namespace ap {
 

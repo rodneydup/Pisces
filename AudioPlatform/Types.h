@@ -20,6 +20,8 @@ struct Array {
 
   void add(const float index, const float value);
 
+  void addAverage(const float index, const float value);
+
   // deep-copy copy constructor
   // Array(const Array& other);
   // also do assignment
