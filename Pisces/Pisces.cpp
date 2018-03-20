@@ -1,7 +1,7 @@
 // Pisces - Pisces Interactive Spectral Compression Engine & Synthesizer
 // Rodney DuPlessis
 // duplessis@umail.ucsb.edu
-// 2018-03-7
+// 2018-03-20
 // MAT 240B
 //
 // Copyright (C) 2018  Rodney DuPlessis <duplessis@umail.ucsb.edu>
@@ -26,6 +26,8 @@
 //		- Add Y axis labels on spectrograph
 //		- Add Load File and Save Settings functions
 //		- Add Record Function
+//		- Figure out why Log scale compression is crashing. (changed upper edge case to 20000 as a workaround
+// for  now)
 
 #include "./Headers.h"
 #include <string.h>
@@ -83,6 +85,7 @@ struct App : AudioVisual, MIDI {
     // player.load("media/sine500.wav");
     // player.load("media/noise.wav");
     player.load("media/BACH.wav");
+    // player.load("media/Saw.wav");
     stft.setup(FFTsize);
     _magnitude.resize(stft.magnitude.size());
     _phase.resize(stft.magnitude.size());
@@ -168,7 +171,7 @@ struct App : AudioVisual, MIDI {
           for (int i = 0; i < size; i++) {
             if (scale == 0) {
               if (pow((i / sampleCenterFreq), sampleCompressionFactor) * sampleCenterFreq > 0 &&
-                  pow((i / sampleCenterFreq), sampleCompressionFactor) * sampleCenterFreq < 22050) {
+                  pow((i / sampleCenterFreq), sampleCompressionFactor) * sampleCenterFreq < 20000) {
                 _magnitude.add(pow((i / sampleCenterFreq), sampleCompressionFactor) * sampleCenterFreq,
                                stft.magnitude[i]);
                 _phase.add(pow((i / sampleCenterFreq), sampleCompressionFactor) * sampleCenterFreq, stft.phase[i]);
@@ -865,7 +868,7 @@ struct App : AudioVisual, MIDI {
 
       {
         // ImGui::SetNextWindowPos(ImVec2(600, 20), ImGuiCond_FirstUseEver);
-        ImGui::ShowTestWindow();
+        // ImGui::ShowTestWindow();
         ImGui::PopStyleVar(4);
         ImGui::PopStyleColor(8);
       }
