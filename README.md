@@ -2,7 +2,7 @@
 
 Pisces Interactive Spectral Compression Engine & Synthesizer
 
-PISCES is an instrument for exploring spectral compression. Spectral Compression is a paradigm for additive synthesis and a audio processing technique.
+PISCES is an instrument for exploring spectral compression. Spectral Compression is a paradigm for additive synthesis and an audio processing technique.
 
 ![](GUI_Example.png)
 
