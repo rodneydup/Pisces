@@ -3,4 +3,3 @@ tmp/
 *.a
 *.exe
 Debug/
-imgui.ini
