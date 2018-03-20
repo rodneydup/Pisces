@@ -9,7 +9,7 @@
 
 // GUI
 #include "imgui.h"
-#include "imgui_impl_glfw.h"
+#include "imgui_impl_glfw_gl2.h"
 
 #include <map>
 

@@ -53,7 +53,6 @@ struct App : AudioVisual, MIDI {
   int center = 20;
   int noteCounter;
   int tabID = 0;
-  int bin = 500;
   int scale = 0;
   int FFTsize = blockSize * 4;
   std::vector<int> spectrogramData;
@@ -162,21 +161,29 @@ struct App : AudioVisual, MIDI {
         LFO2();
         float sampleCompressionFactor = compressionLine();
         float sampleCenterFreq = centerLine() / (22050.0 / (FFTsize / 2.0));
-        float f = player();
-        if (stft(f)) {
+        if (stft(player())) {
           int size = stft.magnitude.size();
           memset(&_magnitude[0], 0, sizeof(_magnitude[0]) * _magnitude.size);
           memset(&_phase[0], 0, sizeof(_phase[0]) * _phase.size);
-          for (int i = bin; i < size - 1; ++i) stft.magnitude[i] = 0;
-          for (int i = 0; i < size - 1; i++) {
-            if (((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq > 0 &&
-                ((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq < 22050) {
-              _magnitude.add((((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq),
-                             stft.magnitude[i]);
-              _phase.add((((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq), stft.phase[i]);
+          for (int i = 0; i < size; i++) {
+            if (scale == 0) {
+              if (pow((i / sampleCenterFreq), sampleCompressionFactor) * sampleCenterFreq > 0 &&
+                  pow((i / sampleCenterFreq), sampleCompressionFactor) * sampleCenterFreq < 22050) {
+                _magnitude.add(pow((i / sampleCenterFreq), sampleCompressionFactor) * sampleCenterFreq,
+                               stft.magnitude[i]);
+                _phase.add(pow((i / sampleCenterFreq), sampleCompressionFactor) * sampleCenterFreq, stft.phase[i]);
+              }
+            }
+            if (scale == 1) {
+              if (((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq > 0 &&
+                  ((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq < 22050) {
+                _magnitude.add((((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq),
+                               stft.magnitude[i]);
+                _phase.add((((i - sampleCenterFreq) * sampleCompressionFactor) + sampleCenterFreq), stft.phase[i]);
+              }
             }
           }
-          for (int i = 0; i < size - 1; i++) {
+          for (int i = 0; i < size; i++) {
             stft.magnitude[i] = _magnitude[i];
             stft.phase[i] = _phase[i];
           }
@@ -186,9 +193,9 @@ struct App : AudioVisual, MIDI {
             mtx.unlock();
           }
         }
-        f = stft();
+        float ifft = stft();
         float gain = gainLine();
-        out[i + 1] = out[i + 0] = f * gain;
+        out[i + 1] = out[i + 0] = ifft * gain;
       }
     }
     memcpy(b, out, blockSize * channelCount * sizeof(float));
@@ -792,7 +799,7 @@ struct App : AudioVisual, MIDI {
          std::cout << graph10DrawList->VtxBuffer.Size << std::endl;
          ImGui::End(); */
         const int ysize = 1024;
-        const int xsize = 300;
+        const int xsize = 600;
         const float freqRes = 22050 / ysize;
         const int timeRes = 60.0f / (xsize / 10.0f);
         static float spectrum[ysize][xsize];  // array for x/y coordinates
@@ -836,7 +843,7 @@ struct App : AudioVisual, MIDI {
                       mtx.unlock();
                     }
                   } else {
-                    int alpha = spectrum[y][z] * 2;
+                    int alpha = spectrum[y][z] * 3;
                     if (alpha > 255) alpha = 255;
                     // std::cout << 600.0f - ftom((y * 39.16) * 2) << std::endl;
                     ImVec2 pos1(x * (windowWidth / float(xsize)), ypos),

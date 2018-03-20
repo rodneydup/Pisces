@@ -8,7 +8,7 @@
 
 // GUI
 #include "imgui.h"
-#include "imgui_impl_glfw.h"
+#include "imgui_impl_glfw_gl2.h"
 
 #include <cmath>
 #include <map>
@@ -137,6 +137,7 @@ void AudioVisual::start() {
   }
   glfwMakeContextCurrent(window);
   glfwSwapInterval(1);  // Enable vsync
+  ImGui::CreateContext();
   ImGui_ImplGlfwGL2_Init(window, true);
 
   //
@@ -160,6 +161,7 @@ void AudioVisual::start() {
     visual();
 
     ImGui::Render();
+    ImGui_ImplGlfwGL2_RenderDrawData(ImGui::GetDrawData());
     glfwSwapBuffers(window);
   }
 
@@ -169,6 +171,8 @@ void AudioVisual::start() {
     e.printMessage();
   }
   ImGui_ImplGlfwGL2_Shutdown();
+  ImGui::DestroyContext();
+
   glfwTerminate();
 }
 

@@ -53,7 +53,7 @@ endif
 
 OBJ=
 OBJ += external/AudioFFT/AudioFFT.o
-OBJ += external/imgui/examples/opengl2_example/imgui_impl_glfw.o
+OBJ += external/imgui/examples/opengl2_example/imgui_impl_glfw_gl2.o
 OBJ += external/imgui/imgui.o
 OBJ += external/imgui/imgui_demo.o
 OBJ += external/imgui/imgui_draw.o
